@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ app_tag }} OS Image Publisher</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; max-width: 1500px; }
+    h1, h2 { margin-bottom: 0.5rem; }
+    .note { color: #444; margin-bottom: 0.75rem; }
+    .box { background: #f6f6f6; padding: 0.8rem 1rem; border: 1px solid #ddd; margin-bottom: 1rem; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { border: 1px solid #ddd; padding: 0.6rem; text-align: left; vertical-align: middle; }
+    th { background: #f3f3f3; }
+    code { background: #f3f3f3; padding: 0.1rem 0.3rem; }
+    form { margin: 0; }
+    button { padding: 0.45rem 0.8rem; cursor: pointer; }
+    .pub { font-weight: bold; color: #0a6; }
+    .muted { color: #666; }
+    .upload-box {
+      border: 2px dashed #888;
+      background: #fafafa;
+      padding: 1.5rem;
+      text-align: center;
+      margin-bottom: 1rem;
+    }
+    .upload-box.dragover {
+      background: #eef7ff;
+      border-color: #2684ff;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(220px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      font-size: 0.92rem;
+    }
+    input[type="text"], input[type="file"] {
+      padding: 0.55rem;
+    }
+    .checks {
+      display: flex;
+      gap: 1.5rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+    .checks label {
+      flex-direction: row;
+      align-items: center;
+      gap: 0.45rem;
+    }
+    .full { margin-bottom: 1rem; }
+    .generated { background: #f3f3f3; }
+    .filters input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.4rem;
+      border: 1px solid #ccc;
+      font-size: 0.85rem;
+    }
+    #uploadProgress { appearance: none; }
+    .cache-progress {
+      width: 100%;
+      height: 18px;
+      display: none;
+      margin-top: 0.5rem;
+    }
+    .cache-status {
+      margin-top: 0.4rem;
+      color: #444;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <h1>{{ app_tag }} OS Image Publisher</h1>
+  <p class="note">NAS root: <code>{{ nas_root }}</code></p>
+  <p class="note">Upload target root: <code>{{ upload_root }}</code></p>
+  <p class="note">Capture cache root: <code>{{ capture_root }}</code></p>
+  <p class="note">Published as: <code>{{ publish_link }}</code></p>
+
+  <div class="box">
+    <div><strong>Current published target:</strong></div>
+    {% if current_target %}
+      <div><code>{{ current_target }}</code></div>
+      <form method="post" action="/unpublish" style="margin-top:0.75rem;">
+        <button type="submit">Unpublish</button>
+      </form>
+    {% else %}
+      <div class="muted">Nothing is currently published.</div>
+    {% endif %}
+  </div>
+
+  <h2>New Saves in Cache</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Cached File</th>
+        <th>Size (MB)</th>
+        <th>Import</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for image in cached_images %}
+      <tr>
+        <td><code>{{ image.name }}</code></td>
+        <td>{{ image.size_mb }}</td>
+        <td>
+          <form class="cacheImportForm" method="post" action="/import-capture-start">
+            <input type="hidden" name="source_file" value="{{ image.full_path }}">
+
+            <div class="grid">
+              <label>Vendor<input name="vendor" type="text" placeholder="Vendor" required></label>
+              <label>Product Family<input name="product_family" type="text" placeholder="ProductFamily" required></label>
+              <label>Platform<input name="platform" type="text" placeholder="Platform" required></label>
+              <label>Windows Edition<input name="windows_edition" type="text" placeholder="Win11_IoT" required></label>
+              <label>Release<input name="release" type="text" placeholder="24H2" required></label>
+              <label>Build<input name="build" type="text" placeholder="26100.1" required></label>
+              <label>Customer Name<input name="customer_name" type="text" placeholder="optional"></label>
+            </div>
+
+            <div class="checks">
+              <label><input name="is_licensed" type="checkbox"> Licensed (L)</label>
+              <label><input name="no_update" type="checkbox"> NoUpdate</label>
+            </div>
+
+            <button class="cacheImportBtn" type="submit">Save to NAS</button>
+            <progress class="cache-progress" value="0" max="100"></progress>
+            <div class="cache-status"></div>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="3">No cached captures found in <code>{{ capture_root }}</code>.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Upload New Image</h2>
+  <form id="uploadForm" method="post" action="/upload" enctype="multipart/form-data">
+    <div id="dropZone" class="upload-box">
+      <p><strong>Drag and drop a .wim here</strong></p>
+      <p class="muted">or pick it manually below</p>
+      <input id="upload_file" name="upload_file" type="file" accept=".wim" required>
+    </div>
+
+    <div class="grid">
+      <label>Vendor<input id="vendor" name="vendor" type="text" placeholder="Vendor" required></label>
+      <label>Product Family<input id="product_family" name="product_family" type="text" placeholder="ProductFamily" required></label>
+      <label>Platform<input id="platform" name="platform" type="text" placeholder="Platform" required></label>
+      <label>Windows Edition<input id="windows_edition" name="windows_edition" type="text" placeholder="Win11_IoT" required></label>
+      <label>Release<input id="release" name="release" type="text" placeholder="24H2" required></label>
+      <label>Build<input id="build" name="build" type="text" placeholder="26100.1" required></label>
+      <label>Customer Name<input id="customer_name" name="customer_name" type="text" placeholder="optional"></label>
+    </div>
+
+    <div class="checks">
+      <label><input id="is_licensed" name="is_licensed" type="checkbox"> Licensed (L)</label>
+      <label><input id="no_update" name="no_update" type="checkbox"> NoUpdate</label>
+    </div>
+
+    <div class="full">
+      <label>
+        Generated Name
+        <input id="generated_name" class="generated" type="text" readonly>
+      </label>
+    </div>
+
+    <button id="uploadBtn" type="submit">Upload and Save</button>
+
+    <div class="full" style="margin-top:1rem;">
+      <progress id="uploadProgress" value="0" max="100" style="width:100%; height:22px; display:none;"></progress>
+      <div id="uploadStatus" class="note" style="margin-top:0.5rem;"></div>
+    </div>
+  </form>
+
+  <h2>Available WIM Images</h2>
+  <table id="imagesTable">
+    <thead>
+      <tr>
+        <th>Vendor</th>
+        <th>Product Family</th>
+        <th>Platform</th>
+        <th>Windows Edition</th>
+        <th>Release</th>
+        <th>Build</th>
+        <th>L</th>
+        <th>NoUpdate</th>
+        <th>Customer</th>
+        <th>Status</th>
+        <th>Action</th>
+      </tr>
+      <tr class="filters">
+        <th><input type="text" data-col="0" placeholder="Filter vendor"></th>
+        <th><input type="text" data-col="1" placeholder="Filter family"></th>
+        <th><input type="text" data-col="2" placeholder="Filter platform"></th>
+        <th><input type="text" data-col="3" placeholder="Filter edition"></th>
+        <th><input type="text" data-col="4" placeholder="Filter release"></th>
+        <th><input type="text" data-col="5" placeholder="Filter build"></th>
+        <th><input type="text" data-col="6" placeholder="Filter L"></th>
+        <th><input type="text" data-col="7" placeholder="Filter NoUpdate"></th>
+        <th><input type="text" data-col="8" placeholder="Filter customer"></th>
+        <th><input type="text" data-col="9" placeholder="Filter status"></th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for image in images %}
+      <tr>
+        <td>{{ image.vendor }}</td>
+        <td>{{ image.product_family }}</td>
+        <td>{{ image.platform }}</td>
+        <td>{{ image.windows_edition }}</td>
+        <td>{{ image.release }}</td>
+        <td>{{ image.build }}</td>
+        <td>{{ "yes" if image.licensed else "" }}</td>
+        <td>{{ "yes" if image.no_update else "" }}</td>
+        <td>{{ image.customer }}</td>
+        <td>
+          {% if image.published %}
+            <span class="pub">Published</span>
+          {% else %}
+            <span class="muted">Available</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if image.published %}
+            —
+          {% else %}
+            <form method="post" action="/publish">
+              <input type="hidden" name="image_path" value="{{ image.full_path }}">
+              <button type="submit" onclick="return confirm('Publish this image? This affects new deployments.')">Publish</button>
+            </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="11">No .wim images found under <code>{{ nas_root }}</code>.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <script>
+    function updateGeneratedName() {
+      const parts = [];
+
+      const vendor = document.getElementById("vendor").value.trim();
+      const productFamily = document.getElementById("product_family").value.trim();
+      const platform = document.getElementById("platform").value.trim();
+      const windowsEdition = document.getElementById("windows_edition").value.trim();
+      const release = document.getElementById("release").value.trim();
+      const build = document.getElementById("build").value.trim();
+      const customer = document.getElementById("customer_name").value.trim();
+      const licensed = document.getElementById("is_licensed").checked;
+      const noUpdate = document.getElementById("no_update").checked;
+
+      if (vendor) parts.push(vendor);
+      if (productFamily) parts.push(productFamily);
+      if (platform) parts.push(platform);
+      if (windowsEdition) parts.push(windowsEdition);
+      if (release) parts.push(release);
+      if (build) parts.push(build);
+      if (licensed) parts.push("L");
+      if (noUpdate) parts.push("NoUpdate");
+      if (customer) parts.push(customer);
+
+      document.getElementById("generated_name").value = parts.join("_");
+    }
+
+    const watchIds = [
+      "vendor", "product_family", "platform", "windows_edition",
+      "release", "build", "customer_name", "is_licensed", "no_update"
+    ];
+
+    watchIds.forEach(id => {
+      const el = document.getElementById(id);
+      el.addEventListener("input", updateGeneratedName);
+      el.addEventListener("change", updateGeneratedName);
+    });
+
+    updateGeneratedName();
+
+    const dropZone = document.getElementById("dropZone");
+    const fileInput = document.getElementById("upload_file");
+
+    ["dragenter", "dragover"].forEach(evt => {
+      dropZone.addEventListener(evt, e => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.add("dragover");
+      });
+    });
+
+    ["dragleave", "drop"].forEach(evt => {
+      dropZone.addEventListener(evt, e => {
+        e.preventDefault();
+        e.stopPropagation();
+        dropZone.classList.remove("dragover");
+      });
+    });
+
+    dropZone.addEventListener("drop", e => {
+      if (e.dataTransfer.files.length > 0) {
+        fileInput.files = e.dataTransfer.files;
+      }
+    });
+
+    const table = document.getElementById("imagesTable");
+    const filterInputs = document.querySelectorAll(".filters input");
+
+    function applyTableFilters() {
+      const rows = table.querySelectorAll("tbody tr");
+      rows.forEach(row => {
+        const cells = row.querySelectorAll("td");
+        let visible = true;
+
+        filterInputs.forEach(input => {
+          const col = parseInt(input.dataset.col, 10);
+          const needle = input.value.trim().toLowerCase();
+          if (!needle) return;
+
+          const text = (cells[col]?.innerText || "").trim().toLowerCase();
+          if (!text.includes(needle)) {
+            visible = false;
+          }
+        });
+
+        row.style.display = visible ? "" : "none";
+      });
+    }
+
+    filterInputs.forEach(input => {
+      input.addEventListener("input", applyTableFilters);
+    });
+
+    const uploadForm = document.getElementById("uploadForm");
+    const uploadBtn = document.getElementById("uploadBtn");
+    const uploadProgress = document.getElementById("uploadProgress");
+    const uploadStatus = document.getElementById("uploadStatus");
+
+    uploadForm.addEventListener("submit", function (e) {
+      e.preventDefault();
+
+      const formData = new FormData(uploadForm);
+      const xhr = new XMLHttpRequest();
+
+      uploadBtn.disabled = true;
+      uploadProgress.style.display = "block";
+      uploadProgress.value = 0;
+      uploadStatus.textContent = "Starting upload...";
+
+      xhr.open("POST", "/upload", true);
+      xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+
+      xhr.upload.addEventListener("progress", function (e) {
+        if (e.lengthComputable) {
+          const percent = Math.round((e.loaded / e.total) * 100);
+          uploadProgress.value = percent;
+          uploadStatus.textContent = `Uploading... ${percent}%`;
+        } else {
+          uploadStatus.textContent = "Uploading...";
+        }
+      });
+
+      xhr.onload = function () {
+        uploadBtn.disabled = false;
+
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText);
+            uploadProgress.value = 100;
+            uploadStatus.textContent = `Done: ${data.image_name}`;
+          } catch (err) {
+            uploadStatus.textContent = "Upload finished.";
+          }
+
+          setTimeout(() => {
+            window.location.reload();
+          }, 800);
+        } else {
+          uploadStatus.textContent = `Upload failed (${xhr.status})`;
+        }
+      };
+
+      xhr.onerror = function () {
+        uploadBtn.disabled = false;
+        uploadStatus.textContent = "Upload failed: network or server error.";
+      };
+
+      xhr.send(formData);
+    });
+
+    document.querySelectorAll(".cacheImportForm").forEach(form => {
+      const btn = form.querySelector(".cacheImportBtn");
+      const bar = form.querySelector(".cache-progress");
+      const status = form.querySelector(".cache-status");
+
+      form.addEventListener("submit", function (e) {
+        e.preventDefault();
+
+        const formData = new FormData(form);
+
+        btn.disabled = true;
+        bar.style.display = "block";
+        bar.value = 0;
+        status.textContent = "Starting copy to NAS...";
+
+        fetch("/import-capture-start", {
+          method: "POST",
+          body: formData,
+        })
+        .then(async (resp) => {
+          const data = await resp.json();
+          if (!resp.ok) throw new Error(data.detail || "Failed to start import");
+          return data;
+        })
+        .then((data) => {
+          const jobId = data.job_id;
+
+          const timer = setInterval(async () => {
+            try {
+              const resp = await fetch(`/import-capture-status/${jobId}`);
+              const job = await resp.json();
+
+              if (!resp.ok) {
+                clearInterval(timer);
+                btn.disabled = false;
+                status.textContent = "Failed to read copy status.";
+                return;
+              }
+
+              const percent = job.percent || 0;
+              const copied = job.copied_bytes || 0;
+              const total = job.total_bytes || 0;
+
+              bar.value = percent;
+              status.textContent = `Copying to NAS... ${percent}% (${Math.round(copied / 1024 / 1024)} MB / ${Math.round(total / 1024 / 1024)} MB)`;
+
+              if (job.status === "completed") {
+                clearInterval(timer);
+                bar.value = 100;
+                status.textContent = job.source_removed
+                  ? "Saved to NAS. Cache cleared."
+                  : "Saved to NAS, but cache file still exists.";
+                setTimeout(() => window.location.reload(), 1000);
+              }
+
+              if (job.status === "failed") {
+                clearInterval(timer);
+                btn.disabled = false;
+                status.textContent = `Copy failed: ${job.error || "unknown error"}`;
+              }
+            } catch (err) {
+              clearInterval(timer);
+              btn.disabled = false;
+              status.textContent = "Copy failed while checking progress.";
+            }
+          }, 1000);
+        })
+        .catch((err) => {
+          btn.disabled = false;
+          status.textContent = `Failed to start: ${err.message}`;
+        });
+      });
+    });
+  </script>
+</body>
+</html>

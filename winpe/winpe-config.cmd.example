@@ -1,0 +1,12 @@
+@echo off
+set DEPLOY_SERVER=SERVER_IP_OR_HOSTNAME
+set DEPLOY_SHARE=osshare
+set SMB_USER=imaging
+set SMB_PASS=change-me
+
+set PUBLISHED_WIM=install.wim
+set IMAGE_INDEX=1
+set DISK_INDEX=0
+set WINDOWS_VOLUME_INDEX=0
+set BOOT_MODE=UEFI
+set TAG=LaszloK

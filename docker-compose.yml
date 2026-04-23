@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  os-image-manager:
+    build: .
+    container_name: os-image-manager
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      - NAS_ROOT=${NAS_ROOT:-/mnt/nas}
+      - PUBLISH_LINK=${PUBLISH_LINK:-/srv/osshare/install.wim}
+      - CAPTURE_ROOT=${CAPTURE_ROOT:-/srv/osshare/captured}
+      - APP_TAG=${APP_TAG:-LaszloK}
+    volumes:
+      - ${NAS_ROOT:-/mnt/nas}:${NAS_ROOT:-/mnt/nas}
+      - ${OSSHARE_ROOT:-/srv/osshare}:${OSSHARE_ROOT:-/srv/osshare}
+    restart: unless-stopped
